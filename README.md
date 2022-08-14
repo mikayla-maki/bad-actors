@@ -10,7 +10,8 @@ Then this is for you!
 
 Just define your actor struct:
 
-```
+
+```rust
 struct TestObj {
     counter: usize,
 }
@@ -42,7 +43,8 @@ impl Obj for TestObj {
 
 Then create a new Vat and spawn your Actor:
 
-```
+
+```rust
 fn main() {
     thread::spawn(|| {
         let vat = Vat::new();
