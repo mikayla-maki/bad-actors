@@ -290,20 +290,15 @@ impl Obj for PingObj {
 
         println!("Ping! {}", new_counter);
 
+        if new_counter <= 19u8 {
+            ctx.send(Message {
+                from: ctx.cur_obj,
+                addr: self.pong_addr,
+                payload: vec![new_counter + 1],
+            });
+        }
         if new_counter < 19u8 {
-            ctx.send(Message {
-                from: ctx.cur_obj,
-                addr: self.pong_addr,
-                payload: vec![new_counter + 1],
-            });
             true
-        } else if new_counter == 19u8 {
-            ctx.send(Message {
-                from: ctx.cur_obj,
-                addr: self.pong_addr,
-                payload: vec![new_counter + 1],
-            });
-            false
         } else {
             false
         }

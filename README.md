@@ -110,7 +110,6 @@ impl Obj for PingObj {
                 addr: self.pong_addr,
                 payload: vec![new_counter + 1],
             });
-            true
         } 
         if new_counter < 19u8 {
             true
