@@ -7,3 +7,5 @@ edition = "2021"
 
 [dependencies]
 crossbeam-epoch = "0.9.10"
+bytes = "1.2.1"
+tokio = { version = "1.20.1", features = ["full"] }
