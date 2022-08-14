@@ -1,6 +1,6 @@
 use std::{collections::HashMap, mem, thread};
 
-#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Eq, Hash, PartialEq, Debug)]
 struct Ref {
     id: usize,
 }
@@ -15,6 +15,7 @@ impl Ref {
     }
 }
 
+#[derive(Debug)]
 struct RefMaker {
     last_ref: Ref,
 }
@@ -28,7 +29,7 @@ impl RefMaker {
 
     fn next_ref(&mut self) -> Ref {
         let next_ref = Ref {
-            id: self.last_ref.id,
+            id: self.last_ref.id + 1,
         };
 
         self.last_ref = next_ref;
@@ -45,10 +46,12 @@ impl Default for RefMaker {
 
 trait Obj {
     fn receive(&mut self, payload: Vec<u8>, ctx: &mut ExecutionCtx) -> bool;
+    fn on_start(&mut self, _: &mut ExecutionCtx) {}
 }
 
 struct Frame {}
 
+#[derive(Debug)]
 struct Message {
     from: Ref,
     addr: Ref,
@@ -75,6 +78,16 @@ struct Vat {
     turn: u64,
 }
 
+impl std::fmt::Debug for Vat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Vat")
+            .field("delivieries", &self.deliveries)
+            .field("received", &self.received)
+            .field("turn", &self.turn)
+            .finish()
+    }
+}
+
 struct ExecutionCtx {
     ref_maker: RefMaker,
     cur_obj: Ref,
@@ -83,13 +96,30 @@ struct ExecutionCtx {
     _turn: u64,
 }
 
+impl std::fmt::Debug for ExecutionCtx {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Vat")
+            .field("ref_maker", &self.ref_maker)
+            .field("cur_obj", &self.cur_obj)
+            .field("pending_deliveries", &self.pending_deliveries)
+            .field("_turn", &self._turn)
+            .finish()
+    }
+}
+
 impl ExecutionCtx {
     fn send(&mut self, msg: Message) {
         self.pending_deliveries.push(msg);
     }
 
-    fn create_obj(&mut self, obj: Box<dyn Obj>) -> Ref {
+    fn create_obj(&mut self, mut obj: Box<dyn Obj>) -> Ref {
         let obj_ref = self.ref_maker.next_ref();
+        let cur_self = self.cur_obj;
+
+        self.for_obj(obj_ref);
+        obj.on_start(self);
+
+        self.cur_obj = cur_self;
         self.pending_objects.push((obj_ref, obj));
         obj_ref
     }
@@ -134,11 +164,11 @@ impl Vat {
 
         start(&mut ctx);
 
-        ref_maker = mem::take(&mut ctx.ref_maker);
-
         for (obj_ref, obj) in ctx.pending_objects {
             self.heap.insert(obj_ref, obj);
         }
+
+        ref_maker = mem::take(&mut ctx.ref_maker);
 
         self.deliveries.extend(ctx.pending_deliveries);
 
@@ -156,8 +186,9 @@ impl Vat {
             for msg in msgs.drain(..) {
                 let obj_addr = msg.addr.clone();
                 if let Some(mut obj) = self.heap.remove(&obj_addr) {
+                    println!("Sending message to {} on turn {}", obj_addr, self.turn);
+                    ctx.for_obj(obj_addr);
                     if !obj.receive(msg.payload, &mut ctx) {
-                        ctx.for_obj(obj_addr);
                         should_delete.push(obj_addr);
                     }
                     self.heap.insert(obj_addr, obj);
@@ -194,11 +225,16 @@ fn main() {
         let vat = Vat::new();
         vat.start(|ctx| {
             let obj_ref = ctx.create_obj(Box::new(TestObj { counter: 100 }));
+
             ctx.send(Message {
                 from: Ref::null_ref(),
                 addr: obj_ref,
                 payload: "Hello!".into(),
-            })
+            });
+
+            ctx.create_obj(Box::new(PingObj {
+                pong_addr: Ref::null_ref(),
+            }));
         })
     })
     .join()
@@ -224,6 +260,63 @@ impl Obj for TestObj {
                 from: ctx.cur_obj,
                 addr: ctx.cur_obj,
                 payload: "Hi".into(),
+            });
+
+            dbg!(ctx);
+            true
+        } else {
+            false
+        }
+    }
+}
+
+struct PingObj {
+    pong_addr: Ref,
+}
+
+impl Obj for PingObj {
+    fn on_start(&mut self, ctx: &mut ExecutionCtx) {
+        self.pong_addr = ctx.create_obj(Box::new(PongObj {
+            ping_addr: ctx.cur_obj,
+        }));
+
+        ctx.send(Message {
+            from: ctx.cur_obj,
+            addr: self.pong_addr,
+            payload: vec![0],
+        })
+    }
+
+    fn receive(&mut self, payload: Vec<u8>, ctx: &mut ExecutionCtx) -> bool {
+        println!("Ping!");
+        let new_counter = payload[0];
+        if new_counter < 19u8 {
+            ctx.send(Message {
+                from: ctx.cur_obj,
+                addr: self.pong_addr,
+                payload: vec![new_counter + 1],
+            });
+            true
+        } else {
+            false
+        }
+    }
+}
+
+struct PongObj {
+    ping_addr: Ref,
+}
+
+impl Obj for PongObj {
+    fn receive(&mut self, payload: Vec<u8>, ctx: &mut ExecutionCtx) -> bool {
+        println!("Pong!");
+
+        let new_counter = payload[0];
+        if new_counter < 20u8 {
+            ctx.send(Message {
+                from: ctx.cur_obj,
+                addr: self.ping_addr,
+                payload: vec![new_counter + 1],
             });
             true
         } else {
