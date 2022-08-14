@@ -33,9 +33,9 @@ impl Obj for TestObj {
                 payload: "Hi".into(),
             });
 
-            true
+            true 
         } else {
-            false
+            false //Tell the runtime to drop us
         }
     }
 }
@@ -65,4 +65,81 @@ fn main() {
 
 And your done! Fun for the whole family!! A great use of a Saturday night in my 20s!!!!!!!!
 
-There's also a ping-pong implementation using this framework, featuring the on_start method that Objs can overrride.
+Here's ping pong:
+
+
+```rust
+fn main() {
+    thread::spawn(|| {
+        let vat = Vat::new();
+        vat.start(|ctx| {
+            ctx.create_obj(Box::new(PingObj {
+                pong_addr: Ref::null_ref(),
+            }));
+        })
+    })
+    .join()
+    .unwrap();
+}
+
+struct PingObj {
+    pong_addr: Ref,
+}
+
+impl Obj for PingObj {
+    fn on_start(&mut self, ctx: &mut ExecutionCtx) {
+        self.pong_addr = ctx.create_obj(Box::new(PongObj {
+            ping_addr: ctx.cur_obj,
+        }));
+
+        ctx.send(Message {
+            from: ctx.cur_obj,
+            addr: self.pong_addr,
+            payload: vec![0],
+        })
+    }
+
+    fn receive(&mut self, payload: Vec<u8>, ctx: &mut ExecutionCtx) -> bool {
+        let new_counter = payload[0];
+
+        println!("Ping! {}", new_counter);
+
+        if new_counter <= 19u8 {
+            ctx.send(Message {
+                from: ctx.cur_obj,
+                addr: self.pong_addr,
+                payload: vec![new_counter + 1],
+            });
+            true
+        } 
+        if new_counter < 19u8 {
+            true
+        } else {
+            false
+        }
+    }
+}
+
+struct PongObj {
+    ping_addr: Ref,
+}
+
+impl Obj for PongObj {
+    fn receive(&mut self, payload: Vec<u8>, ctx: &mut ExecutionCtx) -> bool {
+        let new_counter = payload[0];
+
+        println!("Pong! {}", new_counter);
+
+        if new_counter < 20u8 {
+            ctx.send(Message {
+                from: ctx.cur_obj,
+                addr: self.ping_addr,
+                payload: vec![new_counter + 1],
+            });
+            true
+        } else {
+            false
+        }
+    }
+}
+```
