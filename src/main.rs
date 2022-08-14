@@ -186,7 +186,6 @@ impl Vat {
             for msg in msgs.drain(..) {
                 let obj_addr = msg.addr.clone();
                 if let Some(mut obj) = self.heap.remove(&obj_addr) {
-                    println!("Sending message to {} on turn {}", obj_addr, self.turn);
                     ctx.for_obj(obj_addr);
                     if !obj.receive(msg.payload, &mut ctx) {
                         should_delete.push(obj_addr);
@@ -224,7 +223,7 @@ fn main() {
     thread::spawn(|| {
         let vat = Vat::new();
         vat.start(|ctx| {
-            let obj_ref = ctx.create_obj(Box::new(TestObj { counter: 100 }));
+            let obj_ref = ctx.create_obj(Box::new(TestObj { counter: 10 }));
 
             ctx.send(Message {
                 from: Ref::null_ref(),
@@ -262,7 +261,6 @@ impl Obj for TestObj {
                 payload: "Hi".into(),
             });
 
-            dbg!(ctx);
             true
         } else {
             false
@@ -288,8 +286,10 @@ impl Obj for PingObj {
     }
 
     fn receive(&mut self, payload: Vec<u8>, ctx: &mut ExecutionCtx) -> bool {
-        println!("Ping!");
         let new_counter = payload[0];
+
+        println!("Ping! {}", new_counter);
+
         if new_counter < 19u8 {
             ctx.send(Message {
                 from: ctx.cur_obj,
@@ -297,6 +297,13 @@ impl Obj for PingObj {
                 payload: vec![new_counter + 1],
             });
             true
+        } else if new_counter == 19u8 {
+            ctx.send(Message {
+                from: ctx.cur_obj,
+                addr: self.pong_addr,
+                payload: vec![new_counter + 1],
+            });
+            false
         } else {
             false
         }
@@ -309,9 +316,10 @@ struct PongObj {
 
 impl Obj for PongObj {
     fn receive(&mut self, payload: Vec<u8>, ctx: &mut ExecutionCtx) -> bool {
-        println!("Pong!");
-
         let new_counter = payload[0];
+
+        println!("Pong! {}", new_counter);
+
         if new_counter < 20u8 {
             ctx.send(Message {
                 from: ctx.cur_obj,
